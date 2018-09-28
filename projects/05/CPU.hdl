@@ -1,0 +1,98 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Hack CPU (Central Processing unit), consisting of an ALU,
+ * two registers named A and D, and a program counter named PC.
+ * The CPU is designed to fetch and execute instructions written in 
+ * the Hack machine language. In particular, functions as follows:
+ * Executes the inputted instruction according to the Hack machine 
+ * language specification. The D and A in the language specification
+ * refer to CPU-resident registers, while M refers to the external
+ * memory location addressed by A, i.e. to Memory[A]. The inM input 
+ * holds the value of this location. If the current instruction needs 
+ * to write a value to M, the value is placed in outM, the address 
+ * of the target location is placed in the addressM output, and the 
+ * writeM control bit is asserted. (When writeM==0, any value may 
+ * appear in outM). The outM and writeM outputs are combinational: 
+ * they are affected instantaneously by the execution of the current 
+ * instruction. The addressM and pc outputs are clocked: although they 
+ * are affected by the execution of the current instruction, they commit 
+ * to their new values only in the next time step. If reset==1 then the 
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
+ * than to the address resulting from executing the current instruction. 
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+    // Put your code here:
+
+    Mux16(a=RegA, b=inM, sel=instruction[12], out=w0);
+    Mux16(a=instruction, b=w0,  sel=instruction[15], out=aluy);
+    
+    Mux(a=true,  b=instruction[11], sel=instruction[15], out=aluzx);
+    Mux(a=true,  b=instruction[10], sel=instruction[15], out=alunx);
+    Mux(a=false, b=instruction[9],  sel=instruction[15], out=aluzy);
+    Mux(a=false, b=instruction[8],  sel=instruction[15], out=aluny);
+    Mux(a=false, b=instruction[7],  sel=instruction[15], out=aluf );
+    Mux(a=false, b=instruction[6],  sel=instruction[15], out=aluno);
+
+    ALU(x=RegD, y=aluy, zx=aluzx, nx=alunx, zy=aluzy, ny=aluny, f=aluf, no=aluno,
+        out=aluout, zr=aluzr, ng=alung);
+
+    Mux(a=true,  b=instruction[5], sel=instruction[15], out=d1);
+    Mux(a=false, b=instruction[4], sel=instruction[15], out=d2);
+    Mux(a=false, b=instruction[3], sel=instruction[15], out=d3, out=writeM);
+
+    ARegister(in=aluout, load=d1, out=RegA, out[0..14]=addressM);
+    DRegister(in=aluout, load=d2, out=RegD);
+    Mux16(a=false, b=aluout, sel=d3, out=outM);               //RAM
+
+    And16(a=true, b=aluout, out[15]=h);
+    Or16Way(in=aluout, in[0]=false, out=l);
+    Not(in=l ,out=notl);
+
+    And(a=true, b=aluzr, out=iszero);    // aluout  = 0
+    Or(a=h, b=l, out=nozero);            // aluout != 0
+    
+    Not(in=h, out=noth, out=gezero);     // aluout >= 0
+    Or(a=h, b=aluzr, out=lezero);        // aluout <= 0
+
+    And(a=noth, b=l, out=gtzero);        // aluout > 0
+    And(a=true, b=alung, out=ltzero);    // aluout < 0
+
+    And(a=true, b=instruction[2], out=j1);
+    And(a=true, b=instruction[1], out=j2);
+    And(a=true, b=instruction[0], out=j3);
+
+    Not(in=instruction[2], out=notj1);
+    Not(in=instruction[1], out=notj2);
+    Not(in=instruction[0], out=notj3);
+
+    And4Way(a=iszero, b=notj1, c=j2,    d=notj3, out=jeq);
+    And4Way(a=gtzero, b=notj1, c=notj2, d=j3,    out=jgt);
+    And4Way(a=ltzero, b=j1,    c=notj2, d=notj3, out=jlt);
+    And4Way(a=gezero, b=notj1, c=j2,    d=j3,    out=jge);
+    And4Way(a=lezero, b=j1,    c=j2,    d=notj3, out=jle);
+    And4Way(a=nozero, b=j1,    c=notj2, d=j3,    out=jne);
+    And4Way(a=true,   b=j1,    c=j2,    d=j3,    out=jmp);
+    
+    Or16Way(in[0]=jeq, in[1]=jgt, in[2]=jlt, in[3]=jge, in[4]=jle, in[5]=jne, in[6]=jmp, in[7..14]=false, out=jump1);
+    And(a=jump1, b=instruction[15], out=jump2);
+
+    PC(in=RegA, inc=true, load=jump2, reset=reset, out[0..14]=pc, out[15]=false);
+}
